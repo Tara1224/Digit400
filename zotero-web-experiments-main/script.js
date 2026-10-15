@@ -96,83 +96,79 @@ function parseItems(xmlText) {
    (library catalogue subject headings) but reported in the housekeeping box.
    ===================================================================== */
 
+
 function analyze(items) {
-  const tags = new Map(); // key -> { key, label, count, items: [item indexes] }
-  const edges = new Map(); // "keyA|keyB" -> { a, b, weight }
-  const spellings = new Map(); // key -> Set of spellings seen (to catch #Security vs #security)
-  const ignored = new Map(); // non-# text -> number of uses
-  const bare = []; // { raw, index } for each non-# tag, to spot a forgotten "#"
+  const tags = new Map();
+  const edges = new Map();
+  const spellings = new Map();
 
   items.forEach((item, index) => {
-    const seen = new Set(); // a tag counts once per reading
+    const seen = new Set();
+
     for (const raw of item.rawTags) {
-      if (!raw.startsWith("#") || raw.length < 2) {
-        ignored.set(raw, (ignored.get(raw) || 0) + 1);
-        bare.push({ raw, index });
-        continue;
-      }
+      if (!raw) continue;
+
       const key = raw.toLowerCase();
-      if (!spellings.has(key)) spellings.set(key, new Set());
+
+      if (!spellings.has(key)) {
+        spellings.set(key, new Set());
+      }
       spellings.get(key).add(raw);
+
       if (seen.has(key)) continue;
       seen.add(key);
-      if (!tags.has(key))
-        tags.set(key, { key, label: raw, count: 0, items: [] });
+
+      if (!tags.has(key)) {
+        tags.set(key, {
+          key,
+          label: raw,
+          count: 0,
+          items: []
+        });
+      }
+
       const tag = tags.get(key);
       tag.count += 1;
       tag.items.push(index);
     }
+
     item.tagKeys = [...seen];
 
-    // Every pair of tags on the same reading adds 1 to that pair's weight.
     const keys = [...seen].sort();
+
     for (let i = 0; i < keys.length; i++) {
       for (let j = i + 1; j < keys.length; j++) {
         const id = keys[i] + "|" + keys[j];
-        if (!edges.has(id))
-          edges.set(id, { a: keys[i], b: keys[j], weight: 0 });
+
+        if (!edges.has(id)) {
+          edges.set(id, {
+            a: keys[i],
+            b: keys[j],
+            weight: 0
+          });
+        }
+
         edges.get(id).weight += 1;
       }
     }
   });
 
-  // ---- housekeeping notes ----
-  const missingHash = bare
-    .filter(({ raw }) => tags.has("#" + raw.toLowerCase()))
-    .map(
-      ({ raw, index }) =>
-        `"${raw}" on “${items[index].title}” looks like ${tags.get("#" + raw.toLowerCase()).label} without the #`,
-    );
-
   const caseVariants = [...spellings]
     .filter(([, forms]) => forms.size > 1)
     .map(
       ([, forms]) =>
-        `Different capitalization: ${[...forms].join(", ")} (counted together)`,
+        `Different capitalization: ${[...forms].join(", ")} (counted together)`
     );
 
   const untagged = items
     .filter((item) => item.tagKeys.length === 0)
-    .map((item) => `No # tags: “${item.title}”`);
-
-  const byUrl = new Map();
-  items.forEach((item) => {
-    if (!item.url) return;
-    if (!byUrl.has(item.url)) byUrl.set(item.url, []);
-    byUrl.get(item.url).push(item);
-  });
-  const duplicates = [...byUrl.values()]
-    .filter((group) => group.length > 1)
-    .map(
-      (group) =>
-        `Possible duplicate (${group.length} entries, same URL): “${group[0].title}”`,
-    );
+    .map((item) => `No tags: “${item.title}”`);
 
   return {
     tags,
     edges,
-    ignored,
-    notes: [...missingHash, ...caseVariants, ...untagged, ...duplicates],
+    ignored: new Map(),
+    notes: [...caseVariants, ...untagged]
   };
 }
 
